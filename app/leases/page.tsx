@@ -10,7 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { getLeases, getProperties, getTenants } from "@/lib/db";
 import { terminateLeaseAction } from "@/lib/actions";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, asCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { Plus, History } from "lucide-react";
 import { EditLeaseDialog } from "@/components/EditLeaseDialog";
@@ -74,7 +74,7 @@ export default async function LeasesPage() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>{formatMoney(lease.monthlyRent, lease.currency)}</TableCell>
+                  <TableCell>{formatMoney(lease.monthlyRent, asCurrency(lease.currency))}</TableCell>
                   <TableCell>
                     <Badge variant={
                       status === 'ACTIVE' ? 'default' :

@@ -5,7 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatMoney(amount: number, currency: 'USD' | 'PEN' = 'PEN') {
+export type Currency = 'USD' | 'PEN';
+
+/**
+ * Safely converts a string to Currency type with fallback
+ */
+export function asCurrency(value: string | undefined | null): Currency {
+  if (value === 'USD' || value === 'PEN') return value;
+  return 'PEN'; // default fallback
+}
+
+export function formatMoney(amount: number, currency: Currency = 'PEN') {
   const formatter = new Intl.NumberFormat('es-PE', {
     style: 'currency',
     currency: currency,

@@ -1,0 +1,108 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PropertyType {
+  ROOM
+  COMMERCIAL
+}
+
+enum PropertyStatus {
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+}
+
+enum LeaseStatus {
+  DRAFT
+  ACTIVE
+  TERMINATED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  OVERDUE
+  PARTIAL
+}
+
+model Property {
+  id       String         @id
+  name     String
+  type     PropertyType
+  status   PropertyStatus
+  price    Float
+  currency String         @default("PEN")
+  location String
+  floor    Int
+
+  // Relations
+  leases Lease[]
+
+  @@map("properties")
+}
+
+model Tenant {
+  id      String @id
+  name    String
+  email   String
+  phone   String
+  dni     String @unique
+  address String
+
+  // Relations
+  leases Lease[]
+
+  @@map("tenants")
+}
+
+model Lease {
+  id              String      @id
+  propertyId      String
+  tenantId        String
+  startDate       String
+  endDate         String
+  monthlyRent     Float
+  currency        String      @default("PEN")
+  status          LeaseStatus
+  advanceMonths   Int
+  warrantyMonths  Int
+  utilityCosts    Json?
+  terminationDate String?
+
+  // Relations
+  property Property  @relation(fields: [propertyId], references: [id])
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  payments Payment[]
+
+  @@index([propertyId])
+  @@index([tenantId])
+  @@index([status])
+  @@map("leases")
+}
+
+model Payment {
+  id           String        @id
+  leaseId      String
+  dueDate      String
+  amount       Float
+  amountPaid   Float         @default(0)
+  status       PaymentStatus
+  paidDate     String?
+  transactions Json?
+
+  // Relations
+  lease Lease @relation(fields: [leaseId], references: [id])
+
+  @@index([leaseId])
+  @@index([status])
+  @@map("payments")
+}

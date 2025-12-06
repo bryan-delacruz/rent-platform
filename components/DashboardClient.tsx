@@ -1,14 +1,14 @@
 "use client"
 
 import { useDashboardMetrics, DateFilterType, TabType } from "@/hooks/useDashboardMetrics"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Activity, CreditCard, Home as HomeIcon, Calendar as CalendarIcon } from "lucide-react"
-import { formatMoney, cn } from "@/lib/utils"
+import { formatMoney, asCurrency, cn } from "@/lib/utils"
 import { format } from "date-fns"
 import { Property, Lease, Payment } from "@/lib/db" // Keep these types for the hook input
 
@@ -155,7 +155,7 @@ export default function DashboardClient({ properties, leases, payments, tenants 
                       <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                         <div
                           className="h-full bg-green-600"
-                          style={{ width: `${(projectionPEN.totalCollected / projectionPEN.totalExpected) * 100}%` }}
+                          style={{ width: `${(projectionPEN.totalCollected / projectionPEN.totalExpected) * 100}% ` }}
                         />
                       </div>
                     </div>
@@ -209,7 +209,7 @@ export default function DashboardClient({ properties, leases, payments, tenants 
                       <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                         <div
                           className="h-full bg-blue-600"
-                          style={{ width: `${(projectionUSD.totalCollected / projectionUSD.totalExpected) * 100}%` }}
+                          style={{ width: `${(projectionUSD.totalCollected / projectionUSD.totalExpected) * 100}% ` }}
                         />
                       </div>
                     </div>
@@ -253,7 +253,7 @@ export default function DashboardClient({ properties, leases, payments, tenants 
                           </p>
                         </div>
                         <div className="ml-auto font-medium">
-                          +{formatMoney(payment.amountPaid || payment.amount, lease?.currency || 'PEN')}
+                          +{formatMoney(payment.amountPaid || payment.amount, asCurrency(lease?.currency))}
                         </div>
                       </div>
                     )

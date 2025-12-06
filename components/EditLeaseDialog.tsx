@@ -90,15 +90,15 @@ export function EditLeaseDialog({ lease, property }: { lease: Lease; property?: 
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="waterCost">Agua</Label>
-                  <Input id="waterCost" name="waterCost" type="number" min="0" defaultValue={lease.utilityCosts?.water || 0} />
+                  <Input id="waterCost" name="waterCost" type="number" min="0" defaultValue={(lease.utilityCosts as any)?.water || 0} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="electricityCost">Luz</Label>
-                  <Input id="electricityCost" name="electricityCost" type="number" min="0" defaultValue={lease.utilityCosts?.electricity || 0} />
+                  <Input id="electricityCost" name="electricityCost" type="number" min="0" defaultValue={(lease.utilityCosts as any)?.electricity || 0} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="gasCost">Gas</Label>
-                  <Input id="gasCost" name="gasCost" type="number" min="0" defaultValue={lease.utilityCosts?.gas || 0} />
+                  <Input id="gasCost" name="gasCost" type="number" min="0" defaultValue={(lease.utilityCosts as any)?.gas || 0} />
                 </div>
               </div>
             </div>

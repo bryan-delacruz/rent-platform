@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getLeases, getPayments, getProperties, getTenants } from "@/lib/db";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, asCurrency } from "@/lib/utils";
 import { ArrowLeft, Calendar, User, Home } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -85,7 +85,7 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatMoney(balance, lease.currency)}</div>
+            <div className="text-2xl font-bold">{formatMoney(balance, asCurrency(lease.currency))}</div>
             <p className="text-xs text-muted-foreground">
               Deuda Pendiente Total
             </p>
@@ -122,7 +122,7 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
 
               return (
                 <Fragment key={payment.id}>
-                  <TableRow className={payment.transactions?.length ? "border-b-0" : ""}>
+                  <TableRow className={Array.isArray(payment.transactions) && payment.transactions.length > 0 ? "border-b-0" : ""}>
                     <TableCell>
                       <div className="flex flex-col">
                         <span>{payment.dueDate}</span>
@@ -133,9 +133,9 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{formatMoney(payment.amount, lease.currency)}</TableCell>
+                    <TableCell>{formatMoney(payment.amount, asCurrency(lease.currency))}</TableCell>
                     <TableCell className={payment.amountPaid && payment.amountPaid > 0 ? "text-green-600 font-medium" : ""}>
-                      {formatMoney(payment.amountPaid || 0, lease.currency)}
+                      {formatMoney(payment.amountPaid || 0, asCurrency(lease.currency))}
                     </TableCell>
                     <TableCell>
                       <Badge variant={
@@ -158,7 +158,7 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
                               dueDate: payment.dueDate,
                               status: payment.status
                             }}
-                            lease={{ currency: lease.currency }}
+                            lease={{ currency: asCurrency(lease.currency) }}
                             tenant={{ name: tenant.name, phone: tenant.phone }}
                             property={{ name: property.name }}
                             overdueDays={overdueDays}
@@ -173,9 +173,9 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
                               amountPaid: payment.amountPaid || 0,
                               dueDate: payment.dueDate,
                               paidDate: payment.paidDate,
-                              transactions: payment.transactions
+                              transactions: payment.transactions as any
                             }}
-                            lease={{ currency: lease.currency }}
+                            lease={{ currency: asCurrency(lease.currency) }}
                             tenant={{ name: tenant.name, phone: tenant.phone }}
                             property={{ name: property.name }}
                           />
@@ -188,7 +188,7 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
                               amount: payment.amount,
                               amountPaid: payment.amountPaid || 0
                             }}
-                            currency={lease?.currency || 'PEN'}
+                            currency={asCurrency(lease?.currency)}
                           />
                         )}
 
@@ -197,24 +197,24 @@ export default async function LeaseHistoryPage({ params }: { params: Promise<{ i
                             id: payment.id,
                             amount: payment.amount,
                             dueDate: payment.dueDate,
-                            transactions: payment.transactions
+                            transactions: payment.transactions as any
                           }}
-                          currency={lease.currency}
+                          currency={asCurrency(lease.currency)}
                         />
                       </div>
                     </TableCell>
                   </TableRow>
-                  {payment.transactions && payment.transactions.length > 0 && (
+                  {Array.isArray(payment.transactions) && payment.transactions.length > 0 && (
                     <TableRow key={`${payment.id} -tx`} className="bg-muted/30">
                       <TableCell colSpan={5} className="p-0">
                         <div className="px-4 py-2">
                           <p className="text-xs font-semibold text-muted-foreground mb-2">Historial de Pagos:</p>
                           <div className="space-y-1">
-                            {payment.transactions.map((tx) => (
+                            {Array.isArray(payment.transactions) && payment.transactions.map((tx: any) => (
                               <div key={tx.id} className="flex justify-between text-xs max-w-md ml-4">
                                 <span>{tx.date}</span>
                                 <span className="font-medium text-green-600">
-                                  + {formatMoney(tx.amount, lease.currency)}
+                                  + {formatMoney(tx.amount, asCurrency(lease.currency))}
                                 </span>
                               </div>
                             ))}

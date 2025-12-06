@@ -10,7 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { getProperties, getLeases } from "@/lib/db";
 import { deletePropertyAction } from "@/lib/actions";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, asCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { EditPropertyDialog } from "@/components/EditPropertyDialog";
@@ -74,7 +74,7 @@ export default async function PropertiesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {formatMoney(property.price, property.currency)}
+                    {formatMoney(property.price, asCurrency(property.currency))}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">

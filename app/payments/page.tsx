@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getProperties, readDb } from "@/lib/db";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, asCurrency } from "@/lib/utils";
 import { GeneratePaymentsButton } from "@/components/GeneratePaymentsButton";
 import { RegisterPaymentDialog } from "@/components/RegisterPaymentDialog";
 import { WhatsAppMessageButton } from "@/components/WhatsAppMessageButton";
@@ -81,10 +81,10 @@ export default async function PaymentsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span>{lease ? formatMoney(payment.amount, lease.currency) : payment.amount}</span>
+                      <span>{lease ? formatMoney(payment.amount, asCurrency(lease.currency)) : payment.amount}</span>
                       {payment.amountPaid > 0 && payment.amountPaid < payment.amount && (
                         <span className="text-xs text-green-600 font-medium">
-                          Abonado: {lease ? formatMoney(payment.amountPaid, lease.currency) : payment.amountPaid}
+                          Abonado: {lease ? formatMoney(payment.amountPaid, asCurrency(lease.currency)) : payment.amountPaid}
                         </span>
                       )}
                     </div>
@@ -111,7 +111,7 @@ export default async function PaymentsPage() {
                             dueDate: payment.dueDate,
                             status: payment.status
                           }}
-                          lease={{ currency: lease.currency }}
+                          lease={{ currency: asCurrency(lease.currency) }}
                           tenant={{ name: tenant.name, phone: tenant.phone }}
                           property={{ name: property.name }}
                           overdueDays={overdueDays}
@@ -126,9 +126,9 @@ export default async function PaymentsPage() {
                             amountPaid: payment.amountPaid || 0,
                             dueDate: payment.dueDate,
                             paidDate: payment.paidDate,
-                            transactions: payment.transactions
+                            transactions: payment.transactions as any
                           }}
-                          lease={{ currency: lease.currency }}
+                          lease={{ currency: asCurrency(lease.currency) }}
                           tenant={{ name: tenant.name, phone: tenant.phone }}
                           property={{ name: property.name }}
                         />
@@ -141,7 +141,7 @@ export default async function PaymentsPage() {
                             amount: payment.amount,
                             amountPaid: payment.amountPaid || 0
                           }}
-                          currency={lease?.currency || 'PEN'}
+                          currency={asCurrency(lease?.currency)}
                         />
                       )}
 
@@ -151,9 +151,9 @@ export default async function PaymentsPage() {
                             id: payment.id,
                             amount: payment.amount,
                             dueDate: payment.dueDate,
-                            transactions: payment.transactions
+                            transactions: payment.transactions as any
                           }}
-                          currency={lease.currency}
+                          currency={asCurrency(lease.currency)}
                         />
                       )}
                     </div>

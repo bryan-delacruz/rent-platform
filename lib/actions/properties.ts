@@ -1,9 +1,10 @@
 'use server';
 
-import { saveProperty, Property, PropertyType, PropertyStatus, deleteProperty, readDb } from '@/lib/db';
+import { saveProperty, Property, PropertyType, PropertyStatus, deleteProperty } from '@/lib/db';
 import { extractPropertyData } from '@/lib/form-helpers';
 import { generateId, PROPERTY_PREFIX } from '@/lib/id-generator';
 import { revalidateProperties } from '@/lib/revalidation';
+import { hasActiveRelatedLeases, createDeleteValidationError } from '@/lib/validators';
 import { redirect } from 'next/navigation';
 
 export async function createProperty(formData: FormData) {
@@ -35,16 +36,8 @@ export async function updateProperty(id: string, formData: FormData) {
 }
 
 export async function deletePropertyAction(id: string) {
-  const db = await readDb();
-
-  // Check if property has any non-draft leases (active, expired, or terminated)
-  const hasNonDraftLeases = db.leases.some(
-    lease => lease.propertyId === id &&
-      (lease.status === 'ACTIVE' || lease.status === 'EXPIRED' || lease.status === 'TERMINATED')
-  );
-
-  if (hasNonDraftLeases) {
-    throw new Error('No se puede eliminar una propiedad con contratos activos, expirados o terminados. Por favor, termine primero todos los contratos asociados.');
+  if (await hasActiveRelatedLeases(id, 'propertyId')) {
+    throw createDeleteValidationError('una propiedad');
   }
 
   await deleteProperty(id);
