@@ -27,82 +27,97 @@ enum LeaseStatus {
   EXPIRED
 }
 
-enum PaymentStatus {
-  PAID
-  PENDING
-  OVERDUE
-  PARTIAL
-}
+// Every row belongs to one landlord: ownerId is the Clerk user id and every
+// query filters by it. Money is Decimal(12,2) and calendar dates are @db.Date.
 
 model Property {
-  id       String         @id
+  id       String         @id @default(cuid())
+  ownerId  String
   name     String
   type     PropertyType
-  status   PropertyStatus
-  price    Float
+  status   PropertyStatus @default(AVAILABLE)
+  price    Decimal        @db.Decimal(12, 2)
   currency String         @default("PEN")
   location String
   floor    Int
 
-  // Relations
   leases Lease[]
 
+  @@index([ownerId])
   @@map("properties")
 }
 
 model Tenant {
-  id      String @id
+  id      String @id @default(cuid())
+  ownerId String
   name    String
   email   String
   phone   String
-  dni     String @unique
+  dni     String
   address String
 
-  // Relations
   leases Lease[]
 
+  @@unique([ownerId, dni])
+  @@index([ownerId])
   @@map("tenants")
 }
 
 model Lease {
-  id              String      @id
+  id              String      @id @default(cuid())
+  ownerId         String
   propertyId      String
   tenantId        String
-  startDate       String
-  endDate         String
-  monthlyRent     Float
+  startDate       DateTime    @db.Date
+  endDate         DateTime    @db.Date
+  monthlyRent     Decimal     @db.Decimal(12, 2)
   currency        String      @default("PEN")
-  status          LeaseStatus
-  advanceMonths   Int
-  warrantyMonths  Int
-  utilityCosts    Json?
-  terminationDate String?
+  status          LeaseStatus @default(ACTIVE)
+  advanceMonths   Int         @default(0)
+  warrantyMonths  Int         @default(0)
+  waterCost       Decimal?    @db.Decimal(12, 2)
+  electricityCost Decimal?    @db.Decimal(12, 2)
+  gasCost         Decimal?    @db.Decimal(12, 2)
+  terminationDate DateTime?   @db.Date
 
-  // Relations
   property Property  @relation(fields: [propertyId], references: [id])
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
   payments Payment[]
 
+  @@index([ownerId, status])
   @@index([propertyId])
   @@index([tenantId])
-  @@index([status])
   @@map("leases")
 }
 
+// A monthly charge. Its status (paid, partial, pending, overdue) is derived
+// from the amounts and the due date when read, so it never goes stale.
 model Payment {
-  id           String        @id
-  leaseId      String
-  dueDate      String
-  amount       Float
-  amountPaid   Float         @default(0)
-  status       PaymentStatus
-  paidDate     String?
-  transactions Json?
+  id         String   @id @default(cuid())
+  ownerId    String
+  leaseId    String
+  dueDate    DateTime @db.Date
+  amount     Decimal  @db.Decimal(12, 2)
+  amountPaid Decimal  @default(0) @db.Decimal(12, 2)
+  paidDate   DateTime? @db.Date
 
-  // Relations
-  lease Lease @relation(fields: [leaseId], references: [id])
+  lease        Lease                @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  transactions PaymentTransaction[]
 
-  @@index([leaseId])
-  @@index([status])
+  @@unique([leaseId, dueDate])
+  @@index([ownerId, dueDate])
   @@map("payments")
+}
+
+model PaymentTransaction {
+  id        String   @id @default(cuid())
+  paymentId String
+  amount    Decimal  @db.Decimal(12, 2)
+  paidAt    DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@map("payment_transactions")
 }
