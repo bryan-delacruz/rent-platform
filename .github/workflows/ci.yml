@@ -16,7 +16,6 @@ jobs:
     env:
       # Build-time only: no query runs against this URL during these steps.
       DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -49,20 +48,36 @@ jobs:
       NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard
       NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard
     steps:
+      - name: Check E2E secrets
+        id: secrets
+        run: |
+          if [ -z "$DATABASE_URL_TEST" ] || [ -z "$CLERK_SECRET_KEY" ]; then
+            echo "::notice::E2E skipped: set DATABASE_URL_TEST, CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY and DEMO_USER_ID as repository secrets."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v4
+        if: steps.secrets.outputs.ready == 'true'
       - uses: pnpm/action-setup@v4
+        if: steps.secrets.outputs.ready == 'true'
         with:
           version: 10
       - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ready == 'true'
         with:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: steps.secrets.outputs.ready == 'true'
       - run: pnpm prisma migrate deploy
+        if: steps.secrets.outputs.ready == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL_TEST }}
       - run: pnpm exec playwright install --with-deps chromium
+        if: steps.secrets.outputs.ready == 'true'
       - run: pnpm test:e2e
+        if: steps.secrets.outputs.ready == 'true'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

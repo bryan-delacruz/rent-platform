@@ -9,7 +9,12 @@ import { getI18n } from "@/lib/i18n/server";
 
 const inter = Inter({ subsets: ["latin"] });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+// On Vercel the production domain is known at build time; no extra variable needed.
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : "http://localhost:3000");
 
 export async function generateMetadata(): Promise<Metadata> {
   const { locale, t } = await getI18n();
