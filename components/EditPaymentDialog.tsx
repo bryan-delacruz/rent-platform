@@ -1,6 +1,8 @@
 'use client';
 
-import { Button } from "@/components/ui/button";
+import { useState, useTransition } from 'react';
+import { Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -8,129 +10,108 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { deleteTransaction, updatePayment } from "@/lib/actions";
-import { formatMoney } from "@/lib/utils";
-import { Trash2 } from "lucide-react";
-import { useState } from "react";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { deleteTransaction, updatePayment } from '@/lib/actions';
+import { notify } from '@/lib/action-toast';
+import { centsToDecimalString, toCents } from '@/lib/billing';
+import { formatDate, formatMoney } from '@/lib/format';
+import { useI18n } from '@/lib/i18n/client';
+import type { Currency, Payment } from '@/lib/types';
 
-interface EditPaymentDialogProps {
+export function EditPaymentDialog({
+  open,
+  onOpenChange,
+  payment,
+  currency,
+}: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  payment: {
-    id: string;
-    amount: number;
-    dueDate: string;
-    transactions?: { id: string; date: string; amount: number }[];
-  };
-  currency: 'USD' | 'PEN';
-}
-
-export function EditPaymentDialog({ open, onOpenChange, payment, currency }: EditPaymentDialogProps) {
-  const [amount, setAmount] = useState(payment.amount);
+  payment: Payment;
+  currency: Currency;
+}) {
+  const { locale, t } = useI18n();
+  const [amount, setAmount] = useState(centsToDecimalString(toCents(payment.amount)));
   const [dueDate, setDueDate] = useState(payment.dueDate);
-  const [isLoading, setIsLoading] = useState(false);
+  const [pending, startTransition] = useTransition();
 
-  const handleSave = async () => {
-    setIsLoading(true);
-    try {
-      await updatePayment(payment.id, { amount, dueDate });
-      onOpenChange(false);
-    } catch (error) {
-      console.error("Failed to update payment", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const save = () =>
+    startTransition(async () => {
+      if (notify(await updatePayment(payment.id, { amount, dueDate }), t, t.payments.updated)) onOpenChange(false);
+    });
 
-  const handleDeleteTransaction = async (txId: string) => {
-    if (!confirm("¿Estás seguro de eliminar esta transacción?")) return;
-
-    setIsLoading(true);
-    try {
-      await deleteTransaction(payment.id, txId);
-    } catch (error) {
-      console.error("Failed to delete transaction", error);
-    } finally {
-      setIsLoading(false);
-    }
+  const removeTransaction = (transactionId: string) => {
+    if (!window.confirm(t.payments.deleteTransactionConfirm)) return;
+    startTransition(async () => {
+      notify(await deleteTransaction(payment.id, transactionId), t);
+    });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Editar Recibo</DialogTitle>
-          <DialogDescription>
-            Modifica los detalles del recibo o gestiona las transacciones.
-          </DialogDescription>
+          <DialogTitle>{t.payments.editTitle}</DialogTitle>
+          <DialogDescription>{t.payments.editHint}</DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="details" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="details">Detalles</TabsTrigger>
-            <TabsTrigger value="transactions">Transacciones</TabsTrigger>
+            <TabsTrigger value="details">{t.payments.details}</TabsTrigger>
+            <TabsTrigger value="transactions">{t.payments.transactions}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="details" className="space-y-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="amount" className="text-right">
-                Monto
-              </Label>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-amount-${payment.id}`}>{t.payments.amount}</Label>
               <Input
-                id="amount"
+                id={`edit-amount-${payment.id}`}
                 type="number"
+                min="0.01"
+                step="0.01"
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                className="col-span-3"
+                onChange={(event) => setAmount(event.target.value)}
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="dueDate" className="text-right">
-                Vencimiento
-              </Label>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-due-${payment.id}`}>{t.payments.dueDate}</Label>
               <Input
-                id="dueDate"
+                id={`edit-due-${payment.id}`}
                 type="date"
                 value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="col-span-3"
+                onChange={(event) => setDueDate(event.target.value)}
               />
             </div>
             <DialogFooter>
-              <Button onClick={handleSave} disabled={isLoading}>
-                {isLoading ? "Guardando..." : "Guardar Cambios"}
+              <Button onClick={save} disabled={pending}>
+                {pending ? t.common.saving : t.common.save}
               </Button>
             </DialogFooter>
           </TabsContent>
 
-          <TabsContent value="transactions" className="space-y-4 py-4">
-            {payment.transactions && payment.transactions.length > 0 ? (
-              <div className="space-y-2">
-                {payment.transactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between rounded-md border p-2">
-                    <div className="text-sm">
-                      <p className="font-medium">{tx.date}</p>
-                      <p className="text-muted-foreground">{formatMoney(tx.amount, currency)}</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteTransaction(tx.id)}
-                      disabled={isLoading}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+          <TabsContent value="transactions" className="space-y-2 py-4">
+            {payment.transactions.length > 0 ? (
+              payment.transactions.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between rounded-md border p-2">
+                  <div className="text-sm">
+                    <p className="font-medium">{formatDate(tx.date, locale)}</p>
+                    <p className="text-muted-foreground">{formatMoney(tx.amount, currency, locale)}</p>
                   </div>
-                ))}
-              </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t.common.delete}
+                    onClick={() => removeTransaction(tx.id)}
+                    disabled={pending}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))
             ) : (
-              <p className="text-center text-sm text-muted-foreground py-4">
-                No hay transacciones registradas.
-              </p>
+              <p className="py-4 text-center text-sm text-muted-foreground">{t.payments.noTransactions}</p>
             )}
           </TabsContent>
         </Tabs>

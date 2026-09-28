@@ -1,114 +1,120 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { extractLeaseData } from '@/lib/form-helpers';
-import { generateId, LEASE_PREFIX } from '@/lib/id-generator';
+import { requireOwner } from '@/lib/auth';
+import { isoToDate } from '@/lib/billing';
+import {
+  leaseSchema,
+  leaseUpdateSchema,
+  parse,
+  terminateLeaseSchema,
+} from '@/lib/validation';
 import { revalidateLeases } from '@/lib/revalidation';
-import { redirect } from 'next/navigation';
+import type { ActionResult } from '@/lib/types';
+import { ActionError, fail, ok, run } from './result';
 
-export async function createLease(formData: FormData) {
-  const data = extractLeaseData(formData, true);
-
-  // Check if property is available
-  const property = await prisma.property.findUnique({
-    where: { id: data.propertyId! },
-  });
-
-  if (!property || property.status !== 'AVAILABLE') {
-    throw new Error('Property not available');
-  }
-
-  const propertyType = property.type;
-
-  // Create lease and update property status in a transaction
-  await prisma.$transaction(async (tx) => {
-    // Create the lease
-    await tx.lease.create({
-      data: {
-        id: generateId(LEASE_PREFIX),
-        propertyId: data.propertyId!,
-        tenantId: data.tenantId!,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        monthlyRent: data.monthlyRent,
-        currency: data.currency,
-        status: 'ACTIVE',
-        advanceMonths: data.advanceMonths,
-        warrantyMonths: data.warrantyMonths,
-        ...(propertyType === 'COMMERCIAL' && {
-          utilityCosts: {
-            water: data.waterCost || 0,
-            electricity: data.electricityCost || 0,
-            gas: data.gasCost || 0,
-          },
-        }),
-      },
-    });
-
-    // Update property status to OCCUPIED
-    await tx.property.update({
-      where: { id: data.propertyId! },
-      data: { status: 'OCCUPIED' },
-    });
-  });
-
-  revalidateLeases();
-  redirect('/leases');
+function utilityCosts(
+  isCommercial: boolean,
+  input: { waterCost?: string; electricityCost?: string; gasCost?: string },
+) {
+  if (!isCommercial) return { waterCost: null, electricityCost: null, gasCost: null };
+  return {
+    waterCost: input.waterCost ?? '0',
+    electricityCost: input.electricityCost ?? '0',
+    gasCost: input.gasCost ?? '0',
+  };
 }
 
-export async function terminateLeaseAction(id: string, terminationDate: string) {
-  const lease = await prisma.lease.findUnique({
-    where: { id },
+export async function createLease(formData: FormData): Promise<ActionResult<{ id: string }>> {
+  const ownerId = await requireOwner();
+  const input = parse(leaseSchema, formData);
+  if (!input.ok) return fail('validation', input.fields);
+  const data = input.data;
+  if (data.endDate <= data.startDate) return fail('invalidDates', ['endDate']);
+
+  return run(async () => {
+    const lease = await prisma.$transaction(async (tx) => {
+      const [property, tenant] = await Promise.all([
+        tx.property.findFirst({ where: { id: data.propertyId, ownerId } }),
+        tx.tenant.findFirst({ where: { id: data.tenantId, ownerId } }),
+      ]);
+      if (!property || !tenant) throw new ActionError('notFound');
+      if (property.status !== 'AVAILABLE') throw new ActionError('propertyUnavailable');
+
+      // Claim the property atomically so two leases can't take it at once.
+      const claimed = await tx.property.updateMany({
+        where: { id: property.id, ownerId, status: 'AVAILABLE' },
+        data: { status: 'OCCUPIED' },
+      });
+      if (claimed.count === 0) throw new ActionError('propertyUnavailable');
+
+      return tx.lease.create({
+        data: {
+          ownerId,
+          propertyId: property.id,
+          tenantId: tenant.id,
+          startDate: isoToDate(data.startDate),
+          endDate: isoToDate(data.endDate),
+          monthlyRent: data.monthlyRent,
+          currency: data.currency,
+          status: 'ACTIVE',
+          advanceMonths: data.advanceMonths,
+          warrantyMonths: data.warrantyMonths,
+          ...utilityCosts(property.type === 'COMMERCIAL', data),
+        },
+      });
+    });
+    revalidateLeases();
+    return ok({ id: lease.id });
   });
+}
 
-  if (!lease) return;
+export async function updateLease(id: string, formData: FormData): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  const input = parse(leaseUpdateSchema, formData);
+  if (!input.ok) return fail('validation', input.fields);
+  const data = input.data;
+  if (data.endDate <= data.startDate) return fail('invalidDates', ['endDate']);
 
-  // Terminate lease and free up property in a transaction
-  await prisma.$transaction(async (tx) => {
-    await tx.lease.update({
+  return run(async () => {
+    const lease = await prisma.lease.findFirst({ where: { id, ownerId }, include: { property: true } });
+    if (!lease) throw new ActionError('notFound');
+    await prisma.lease.update({
       where: { id },
       data: {
-        status: 'TERMINATED',
-        terminationDate,
+        startDate: isoToDate(data.startDate),
+        endDate: isoToDate(data.endDate),
+        monthlyRent: data.monthlyRent,
+        currency: data.currency,
+        advanceMonths: data.advanceMonths,
+        warrantyMonths: data.warrantyMonths,
+        ...utilityCosts(lease.property.type === 'COMMERCIAL', data),
       },
     });
-
-    await tx.property.update({
-      where: { id: lease.propertyId },
-      data: { status: 'AVAILABLE' },
-    });
+    revalidateLeases();
+    return ok();
   });
-
-  revalidateLeases();
 }
 
-export async function updateLease(id: string, formData: FormData) {
-  const data = extractLeaseData(formData, false);
+export async function terminateLease(id: string, terminationDate: string): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  const input = parse(terminateLeaseSchema, { id, terminationDate });
+  if (!input.ok) return fail('validation', input.fields);
 
-  const lease = await prisma.lease.findUnique({
-    where: { id },
+  return run(async () => {
+    await prisma.$transaction(async (tx) => {
+      const lease = await tx.lease.findFirst({ where: { id, ownerId, status: 'ACTIVE' } });
+      if (!lease) throw new ActionError('notFound');
+      if (input.data.terminationDate < lease.startDate.toISOString().slice(0, 10)) {
+        throw new ActionError('invalidDates');
+      }
+      await tx.lease.update({
+        where: { id },
+        data: { status: 'TERMINATED', terminationDate: isoToDate(input.data.terminationDate) },
+      });
+      await tx.property.update({ where: { id: lease.propertyId }, data: { status: 'AVAILABLE' } });
+    });
+    revalidateLeases();
+    return ok();
   });
-
-  if (!lease) return;
-
-  await prisma.lease.update({
-    where: { id },
-    data: {
-      startDate: data.startDate,
-      endDate: data.endDate,
-      monthlyRent: data.monthlyRent,
-      currency: data.currency,
-      advanceMonths: data.advanceMonths,
-      warrantyMonths: data.warrantyMonths,
-      ...(lease.utilityCosts && {
-        utilityCosts: {
-          water: data.waterCost || 0,
-          electricity: data.electricityCost || 0,
-          gas: data.gasCost || 0,
-        },
-      }),
-    },
-  });
-
-  revalidateLeases();
 }

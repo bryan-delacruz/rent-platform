@@ -1,97 +1,68 @@
-# Rent Platform (SaaS)
+# Rent Platform
 
-> A modern, scalable property management platform built with the T3 Stack (Next.js, TypeScript, Tailwind) and a comprehensive Design System.
+Rental management for landlords: properties, tenants, leases, monthly charges, partial payments, PDF receipts and WhatsApp reminders, in English and Spanish.
 
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white)
-![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
-![Storybook](https://img.shields.io/badge/Storybook-FF4785?style=for-the-badge&logo=storybook&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+**Live demo:** [rent-platform-bdlc.vercel.app](https://rent-platform-bdlc.vercel.app) — click **Try the demo** to sign in to a sample account with one click, no password. The demo data resets every day.
 
-## 🚀 Overview
+## What it does
 
-Rent Platform is a next-generation SaaS application designed to streamline property management for landlords and tenants. This project demonstrates enterprise-grade architecture, focusing on performance, accessibility (a11y), and a component-driven development workflow.
+- **Properties and tenants.** Rooms and commercial units, priced in soles (S/) or US dollars.
+- **Leases.** A lease claims an available property; terminating it frees the property again. Commercial leases also track water, electricity and gas.
+- **Monthly charges.** A daily cron creates this month's charge for every active lease; landlords can also run it with a button. Running it twice never duplicates a charge.
+- **Payments.** Record partial or full payments. Each charge shows whether it is paid, partial, pending or overdue, and how many days late.
+- **Receipts and reminders.** Download a PDF receipt, or open WhatsApp with a confirmation or a reminder that includes the exact balance.
+- **Dashboard.** Occupancy, money collected versus expected, and overdue debt, by period and by type of property.
+- **Two languages.** The whole UI, the sign-in screens, the receipts and the WhatsApp messages switch between English and Spanish.
 
-## ✨ Key Features
+## How it's built
 
-- **🎨 Robust Design System**: Built with a "Component First" approach using **Storybook**. All UI components are isolated, documented, and tested for visual consistency.
-- **♿ Accessibility First**: Leveraging **Radix UI** primitives and adhering to WCAG guidelines to ensure an inclusive user experience for all landlords and tenants.
-- **🛠️ Tech Stack**:
-  - **Framework**: [Next.js 16](https://nextjs.org/) (App Router, Server Actions)
-  - **Language**: TypeScript (Strict Mode)
-  - **Styling**: Tailwind CSS v4 & Shadcn/UI
-  - **Database**: PostgreSQL (via Neon) & Prisma ORM
-  - **Validation**: Zod
-  - **Testing/Docs**: Storybook & Vitest (configured)
+| Area | Choice |
+| --- | --- |
+| App | Next.js 16 (App Router, Server Components, Server Actions), React 19, TypeScript |
+| Auth | Clerk. Every query and server action is scoped to the signed-in landlord; another landlord's record answers "not found". |
+| Data | PostgreSQL on Neon, Prisma 7. Money is `Decimal(12,2)`, dates are `date` columns, payments are a table of transactions. |
+| Validation | Zod schemas on every server action, with typed error codes the UI translates. |
+| Billing logic | Pure functions in `lib/billing` that work in integer cents and ISO dates, with "today" in Lima time. |
+| UI | Tailwind CSS 4, shadcn/ui (Radix), Storybook for the component library |
+| Tests | Vitest for the billing, analytics, formatting and validation logic; Playwright end-to-end on desktop and mobile |
+| Ops | Vercel, with two daily crons protected by `CRON_SECRET`; GitHub Actions for lint, types, tests and build |
 
-## 📦 Design System & UI Kit
-
-This project utilizes a dedicated Design System to maintain UI consistency. You can explore the component library interactively via Storybook.
-
-### Components
-
-- **Core**: Button, Input, Card, Badge, Dialog, Dropdown
-- **Data Display**: Tables, Charts
-- **Feedback**: Toasts (Sonner), Skeleton Loaders
-
-Run the Design System locally:
-
-```bash
-npm run storybook
-# Opens http://localhost:6006
+```
+app/
+  page.tsx                 Public landing page
+  (auth)/                  Clerk sign-in and sign-up
+  (app)/                   Protected app: dashboard, properties, tenants, leases, payments
+  demo/route.ts            One-click demo sign-in (Clerk sign-in token)
+  api/cron/                Daily charges and demo reset
+lib/
+  billing/                 Money, dates and payment status (pure, unit-tested)
+  actions/                 Server actions: auth check, Zod, Prisma
+  data.ts                  Owner-scoped queries that return plain DTOs
+  i18n/                    English and Spanish dictionaries
+e2e/                       Playwright tests
+prisma/                    Schema, migrations and the demo seed
 ```
 
-## 🛠️ Getting Started
+## Running it locally
 
-Follow these steps to set up the project locally.
+Requirements: Node.js 24, pnpm 10, a PostgreSQL database (Neon works) and a Clerk application.
 
-### Prerequisites
+```bash
+pnpm install
+cp .env.example .env.local   # then fill in the values
+pnpm prisma migrate deploy
+pnpm prisma:seed user_xxx    # optional: sample data for your Clerk user id
+pnpm dev
+```
 
-- Node.js 20+
-- npm / pnpm / yarn
+## Tests
 
-### Installation
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test            # unit tests (Vitest)
+pnpm test:e2e        # end-to-end (Playwright); needs DATABASE_URL_TEST
+pnpm storybook       # component library
+```
 
-1.  **Clone the repository**
-
-    ```bash
-    git clone https://github.com/yourusername/rent-platform.git
-    cd rent-platform
-    ```
-
-2.  **Install dependencies**
-
-    ```bash
-    npm install
-    # or
-    pnpm install
-    ```
-
-3.  **Environment Setup**
-    Copy the example environment file and update the variables (Database URL, Auth secrets, etc.).
-
-    ```bash
-    cp .env.example .env
-    ```
-
-4.  **Database Setup**
-
-    ```bash
-    npx prisma generate
-    npx prisma migrate dev
-    ```
-
-5.  **Run Development Server**
-    ```bash
-    npm run dev
-    ```
-    Open [http://localhost:3000](http://localhost:3000) to view the application.
-
-## 🤝 Contribution
-
-Contributions are welcome! Please check out the [Issues](https://github.com/yourusername/rent-platform/issues) tab or open a Pull Request.
-
----
-
-_Built with ❤️ by Bryan De La Cruz. Open for work in USA, Canada, and LATAM._
+The end-to-end suite runs against its own database (`DATABASE_URL_TEST`) and refuses to start without it. It signs in with Clerk test users and covers the whole landlord flow, invalid input, the sign-in guard, isolation between landlords, the one-click demo and the language switch.

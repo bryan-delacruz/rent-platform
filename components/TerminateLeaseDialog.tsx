@@ -1,6 +1,8 @@
 'use client';
 
-import { Button } from "@/components/ui/button";
+import { useState, useTransition } from 'react';
+import { Ban } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -9,53 +11,48 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { terminateLeaseAction } from "@/lib/actions";
-import { Ban } from "lucide-react";
-import { useState } from "react";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { terminateLease } from '@/lib/actions';
+import { notify } from '@/lib/action-toast';
+import { todayISO } from '@/lib/billing';
+import { useI18n } from '@/lib/i18n/client';
 
 export function TerminateLeaseDialog({ leaseId }: { leaseId: string }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayISO());
+  const [pending, startTransition] = useTransition();
 
-  const handleTerminate = async () => {
-    await terminateLeaseAction(leaseId, date);
-    setOpen(false);
-  };
+  const confirm = () =>
+    startTransition(async () => {
+      if (notify(await terminateLease(leaseId, date), t, t.leases.terminated)) setOpen(false);
+    });
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="destructive">
-          <Ban className="mr-2 h-4 w-4" /> Terminar
+          <Ban className="mr-2 h-4 w-4" aria-hidden /> {t.leases.terminate}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Terminar Contrato</DialogTitle>
-          <DialogDescription>
-            ¿Estás seguro de que deseas terminar este contrato? Esta acción liberará la propiedad.
-          </DialogDescription>
+          <DialogTitle>{t.leases.terminateTitle}</DialogTitle>
+          <DialogDescription>{t.leases.terminateConfirm}</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="date" className="text-right">
-              Fecha Fin
-            </Label>
-            <Input
-              id="date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="col-span-3"
-            />
-          </div>
+        <div className="space-y-2 py-2">
+          <Label htmlFor="terminationDate">{t.leases.terminationDate}</Label>
+          <Input id="terminationDate" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button variant="destructive" onClick={handleTerminate}>Confirmar Terminación</Button>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="destructive" onClick={confirm} disabled={pending}>
+            {t.leases.confirmTerminate}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

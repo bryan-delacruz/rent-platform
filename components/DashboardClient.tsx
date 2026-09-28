@@ -1,271 +1,199 @@
 "use client"
 
-import { useDashboardMetrics, DateFilterType, TabType } from "@/hooks/useDashboardMetrics"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Activity, Calendar as CalendarIcon, CreditCard, Home as HomeIcon } from "lucide-react"
+import { useDashboardMetrics, type DateFilterType, type TabType } from "@/hooks/useDashboardMetrics"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Activity, CreditCard, Home as HomeIcon, Calendar as CalendarIcon } from "lucide-react"
-import { formatMoney, asCurrency, cn } from "@/lib/utils"
-import { format } from "date-fns"
-import { Property, Lease, Payment } from "@/lib/db" // Keep these types for the hook input
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatDate, formatMoney } from "@/lib/format"
+import { interpolate } from "@/lib/i18n"
+import { useI18n } from "@/lib/i18n/client"
+import { cn } from "@/lib/utils"
+import type { Currency, ISODate, Lease, Payment, Property, Tenant } from "@/lib/types"
 
 interface DashboardClientProps {
   properties: Property[]
   leases: Lease[]
   payments: Payment[]
-  tenants: any[] // tenants is not used in the hook, but kept for the component prop signature
+  tenants: Tenant[]
+  today: ISODate
 }
 
-export default function DashboardClient({ properties, leases, payments, tenants }: DashboardClientProps) {
-  const {
-    dateFilter, setDateFilter,
-    customDateRange, setCustomDateRange,
-    activeTab, setActiveTab,
-    totalPropertiesCount,
-    occupiedCount,
-    occupancyRate,
-    revenuePEN,
-    revenueUSD,
-    overdueAmountPEN,
-    overdueAmountUSD,
-    projectionPEN,
-    projectionUSD,
-    recentPayments
-  } = useDashboardMetrics(properties, leases, payments)
+const periods: DateFilterType[] = ["current", "3m", "6m", "1y", "all", "custom"]
+const currencies: Currency[] = ["PEN", "USD"]
+
+export default function DashboardClient({ properties, leases, payments, tenants, today }: DashboardClientProps) {
+  const { locale, t } = useI18n()
+  const d = t.dashboard
+  const metrics = useDashboardMetrics(properties, leases, payments, today)
+  const leaseById = new Map(leases.map((lease) => [lease.id, lease]))
+  const tenantById = new Map(tenants.map((tenant) => [tenant.id, tenant]))
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <h2 className="text-3xl font-bold tracking-tight">Panel de Control</h2>
-        <div className="flex items-center gap-2">
-          {dateFilter === 'custom' && (
+      <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+        <h1 className="text-3xl font-bold tracking-tight">{d.title}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          {metrics.dateFilter === "custom" && (
             <Popover>
               <PopoverTrigger asChild>
                 <Button
-                  id="date"
-                  variant={"outline"}
-                  className={cn(
-                    "w-[260px] justify-start text-left font-normal",
-                    !customDateRange && "text-muted-foreground"
-                  )}
+                  variant="outline"
+                  className={cn("w-[260px] justify-start text-left font-normal", !metrics.customRange && "text-muted-foreground")}
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {customDateRange?.from ? (
-                    customDateRange.to ? (
-                      <>
-                        {format(customDateRange.from, "LLL dd, y")} -{" "}
-                        {format(customDateRange.to, "LLL dd, y")}
-                      </>
-                    ) : (
-                      format(customDateRange.from, "LLL dd, y")
-                    )
-                  ) : (
-                    <span>Seleccionar fechas</span>
-                  )}
+                  <CalendarIcon className="mr-2 h-4 w-4" aria-hidden />
+                  {metrics.customRange
+                    ? `${formatDate(metrics.customRange.from, locale)} – ${formatDate(metrics.customRange.to, locale)}`
+                    : d.pickDates}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="end">
                 <Calendar
-                  initialFocus
                   mode="range"
-                  defaultMonth={customDateRange?.from}
-                  selected={customDateRange}
-                  onSelect={setCustomDateRange}
+                  defaultMonth={metrics.customDateRange?.from}
+                  selected={metrics.customDateRange}
+                  onSelect={metrics.setCustomDateRange}
                   numberOfMonths={2}
                 />
               </PopoverContent>
             </Popover>
           )}
 
-          <Select value={dateFilter} onValueChange={(v: DateFilterType) => setDateFilter(v)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Periodo" />
+          <Select value={metrics.dateFilter} onValueChange={(value) => metrics.setDateFilter(value as DateFilterType)}>
+            <SelectTrigger className="w-[190px]" aria-label={d.period}>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="current">Mes Actual</SelectItem>
-              <SelectItem value="3m">Últimos 3 Meses</SelectItem>
-              <SelectItem value="6m">Últimos 6 Meses</SelectItem>
-              <SelectItem value="1y">Último Año</SelectItem>
-              <SelectItem value="all">Todo el Historial</SelectItem>
-              <SelectItem value="custom">Personalizado</SelectItem>
+              {periods.map((period) => (
+                <SelectItem key={period} value={period}>
+                  {d.periods[period]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} className="space-y-4">
+      <Tabs value={metrics.activeTab} onValueChange={(value) => metrics.setActiveTab(value as TabType)} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="all">General</TabsTrigger>
-          <TabsTrigger value="commercial">Locales Comerciales</TabsTrigger>
-          <TabsTrigger value="room">Cuartos</TabsTrigger>
+          <TabsTrigger value="all">{d.tabs.all}</TabsTrigger>
+          <TabsTrigger value="commercial">{d.tabs.commercial}</TabsTrigger>
+          <TabsTrigger value="room">{d.tabs.room}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={activeTab} className="space-y-8">
-
-          {/* Occupancy Card */}
+        <TabsContent value={metrics.activeTab} className="space-y-8">
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card className="col-span-2">
+            <Card className="md:col-span-2">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Ocupación {activeTab === 'all' ? 'Total' : (activeTab === 'commercial' ? 'Locales' : 'Cuartos')}</CardTitle>
-                <HomeIcon className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">{d.occupancy}</CardTitle>
+                <HomeIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {occupiedCount} / {totalPropertiesCount}
+                  {metrics.occupiedCount} / {metrics.totalPropertiesCount}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {occupancyRate}% ocupado
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {interpolate(d.occupiedPct, { percent: metrics.occupancyRate })}
                 </p>
               </CardContent>
             </Card>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            {/* PEN Column */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-muted-foreground">Soles (PEN)</h3>
+            {currencies.map((currency) => {
+              const money = (value: number) => formatMoney(value, currency, locale)
+              const projection = metrics.projection[currency]
+              const progress = projection.totalExpected > 0 ? (projection.totalCollected / projection.totalExpected) * 100 : 0
+              return (
+                <section key={currency} className="space-y-4" aria-label={t.currency[currency]}>
+                  <h2 className="text-lg font-semibold text-muted-foreground">{t.currency[currency]}</h2>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Ingresos ({dateFilter === 'current' ? 'Mes Actual' : (dateFilter === 'custom' ? 'Rango Personalizado' : 'Periodo')})</CardTitle>
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatMoney(revenuePEN, 'PEN')}</div>
-                </CardContent>
-              </Card>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">
+                        {d.revenue} · {d.periods[metrics.dateFilter]}
+                      </CardTitle>
+                      <CreditCard className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{money(metrics.revenue[currency])}</div>
+                    </CardContent>
+                  </Card>
 
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Proyección / Esperado</CardTitle>
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {projectionPEN.totalExpected > 0 ? (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm font-medium">
-                        <span>Progreso</span>
-                        <span className="text-muted-foreground">
-                          {formatMoney(projectionPEN.totalCollected, 'PEN')} / {formatMoney(projectionPEN.totalExpected, 'PEN')}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-green-600"
-                          style={{ width: `${(projectionPEN.totalCollected / projectionPEN.totalExpected) * 100}% ` }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No hay pagos registrados en este periodo.</p>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                      <CardTitle className="text-sm font-medium">{d.expected}</CardTitle>
+                      <Activity className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    </CardHeader>
+                    <CardContent>
+                      {projection.totalExpected > 0 ? (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-sm font-medium">
+                            <span>{d.progress}</span>
+                            <span className="text-muted-foreground">
+                              {money(projection.totalCollected)} / {money(projection.totalExpected)}
+                            </span>
+                          </div>
+                          <div
+                            className="h-2 w-full overflow-hidden rounded-full bg-secondary"
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(progress)}
+                          >
+                            <div className="h-full bg-green-600" style={{ width: `${Math.min(progress, 100)}%` }} />
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">{d.noPaymentsPeriod}</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {metrics.overdue[currency] > 0 && (
+                    <Card className="border-red-200 bg-red-50">
+                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium text-red-900">{d.overdue}</CardTitle>
+                        <Activity className="h-4 w-4 text-red-600" aria-hidden />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold text-red-700">{money(metrics.overdue[currency])}</div>
+                      </CardContent>
+                    </Card>
                   )}
-                </CardContent>
-              </Card>
-
-              {overdueAmountPEN > 0 && (
-                <Card className="border-red-200 bg-red-50">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-red-900">Deuda Vencida</CardTitle>
-                    <Activity className="h-4 w-4 text-red-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-red-700">{formatMoney(overdueAmountPEN, 'PEN')}</div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            {/* USD Column */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-muted-foreground">Dólares (USD)</h3>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Ingresos ({dateFilter === 'current' ? 'Mes Actual' : (dateFilter === 'custom' ? 'Rango Personalizado' : 'Periodo')})</CardTitle>
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{formatMoney(revenueUSD, 'USD')}</div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Proyección / Esperado</CardTitle>
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {projectionUSD.totalExpected > 0 ? (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-sm font-medium">
-                        <span>Progreso</span>
-                        <span className="text-muted-foreground">
-                          {formatMoney(projectionUSD.totalCollected, 'USD')} / {formatMoney(projectionUSD.totalExpected, 'USD')}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-blue-600"
-                          style={{ width: `${(projectionUSD.totalCollected / projectionUSD.totalExpected) * 100}% ` }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No hay pagos registrados en este periodo.</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {overdueAmountUSD > 0 && (
-                <Card className="border-red-200 bg-red-50">
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium text-red-900">Deuda Vencida</CardTitle>
-                    <Activity className="h-4 w-4 text-red-600" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold text-red-700">{formatMoney(overdueAmountUSD, 'USD')}</div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                </section>
+              )
+            })}
           </div>
 
-          {/* Recent Activity */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <Card className="col-span-4">
-              <CardHeader>
-                <CardTitle>Pagos Recientes ({activeTab === 'all' ? 'General' : (activeTab === 'commercial' ? 'Locales' : 'Cuartos')})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-8">
-                  {recentPayments.map(payment => {
-                    const lease = leases.find(l => l.id === payment.leaseId)
-                    const tenant = tenants.find(t => t.id === lease?.tenantId)
-                    return (
-                      <div key={payment.id} className="flex items-center">
-                        <div className="ml-4 space-y-1">
-                          <p className="text-sm font-medium leading-none">{tenant?.name || 'Inquilino'}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {payment.paidDate}
-                          </p>
-                        </div>
-                        <div className="ml-auto font-medium">
-                          +{formatMoney(payment.amountPaid || payment.amount, asCurrency(lease?.currency))}
-                        </div>
+          <Card className="lg:max-w-3xl">
+            <CardHeader>
+              <CardTitle>{d.recent}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-6">
+                {metrics.recentPayments.map((payment) => {
+                  const lease = leaseById.get(payment.leaseId)
+                  const tenant = lease ? tenantById.get(lease.tenantId) : undefined
+                  return (
+                    <li key={payment.id} className="flex items-center">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium leading-none">{tenant?.name ?? d.tenantFallback}</p>
+                        <p className="text-sm text-muted-foreground">{payment.paidDate ? formatDate(payment.paidDate, locale) : ""}</p>
                       </div>
-                    )
-                  })}
-                  {recentPayments.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No hay actividad reciente en este periodo.</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
+                      <div className="ml-auto font-medium">
+                        + {lease ? formatMoney(payment.amountPaid, lease.currency, locale) : payment.amountPaid}
+                      </div>
+                    </li>
+                  )
+                })}
+                {metrics.recentPayments.length === 0 && <li className="text-sm text-muted-foreground">{d.noRecent}</li>}
+              </ul>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

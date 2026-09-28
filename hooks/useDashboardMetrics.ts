@@ -1,73 +1,69 @@
-import { useState, useMemo } from "react"
-import { Property, Lease, Payment } from "@/lib/db"
-import { DateRange as DayPickerDateRange } from "react-day-picker"
+import { useMemo, useState } from "react"
+import type { DateRange as DayPickerDateRange } from "react-day-picker"
 import {
-  DateFilterType,
-  TabType,
-  filterData,
   calculateOccupancy,
-  calculateRevenue,
   calculateOverdue,
   calculateProjection,
-  getRecentActivity
+  calculateRevenue,
+  filterData,
+  getRecentActivity,
+  type DateFilterType,
+  type DateRange,
+  type TabType,
 } from "@/lib/analytics"
+import type { ISODate, Lease, Payment, Property } from "@/lib/types"
 
 export type { DateFilterType, TabType }
 
-export function useDashboardMetrics(
-  properties: Property[],
-  leases: Lease[],
-  payments: Payment[]
-) {
-  const [dateFilter, setDateFilter] = useState<DateFilterType>('current')
+/** Calendar picks are local dates; keep the day the user clicked. */
+function toISO(date: Date): ISODate {
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+export function useDashboardMetrics(properties: Property[], leases: Lease[], payments: Payment[], today: ISODate) {
+  const [dateFilter, setDateFilter] = useState<DateFilterType>("current")
   const [customDateRange, setCustomDateRange] = useState<DayPickerDateRange | undefined>()
-  const [activeTab, setActiveTab] = useState<TabType>('all')
+  const [activeTab, setActiveTab] = useState<TabType>("all")
 
-  // Filter Data based on Filters
-  const filteredData = useMemo(() => {
-    return filterData(properties, leases, payments, dateFilter, customDateRange, activeTab)
-  }, [dateFilter, customDateRange, activeTab, payments, properties, leases])
+  const customRange: DateRange | undefined = customDateRange?.from
+    ? { from: toISO(customDateRange.from), to: toISO(customDateRange.to ?? customDateRange.from) }
+    : undefined
 
-  // --- Metrics Calculation ---
+  const filtered = useMemo(
+    () => filterData(properties, leases, payments, dateFilter, customRange, activeTab, today),
+    // customRange is derived from customDateRange on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [properties, leases, payments, dateFilter, customDateRange, activeTab, today],
+  )
 
-  // Occupancy
-  const { occupiedCount, totalPropertiesCount, occupancyRate } = calculateOccupancy(filteredData.properties)
-
-  // Revenue (Historical / Filtered)
-  const revenuePEN = calculateRevenue(filteredData.payments, leases, 'PEN')
-  const revenueUSD = calculateRevenue(filteredData.payments, leases, 'USD')
-
-  // Overdue (Always Current Status, but filtered by Tab)
-  // Note: we pass 'payments' (all payments) not 'filteredData.payments' for overdue check as it is usually time-independent (current state)
-  const overdueAmountPEN = calculateOverdue(payments, leases, properties, activeTab, 'PEN')
-  const overdueAmountUSD = calculateOverdue(payments, leases, properties, activeTab, 'USD')
-
-  // Monthly Projection
-  const projectionPEN = calculateProjection(filteredData.payments, leases, 'PEN')
-  const projectionUSD = calculateProjection(filteredData.payments, leases, 'USD')
-
-  // Recent Activity
-  const recentPayments = getRecentActivity(filteredData.payments)
+  const { occupiedCount, totalPropertiesCount, occupancyRate } = calculateOccupancy(filtered.properties)
 
   return {
-    // State
     dateFilter,
     setDateFilter,
     customDateRange,
     setCustomDateRange,
+    customRange,
     activeTab,
     setActiveTab,
-
-    // Metrics
     totalPropertiesCount,
     occupiedCount,
     occupancyRate,
-    revenuePEN,
-    revenueUSD,
-    overdueAmountPEN,
-    overdueAmountUSD,
-    projectionPEN,
-    projectionUSD,
-    recentPayments
+    revenue: {
+      PEN: calculateRevenue(filtered.payments, leases, "PEN"),
+      USD: calculateRevenue(filtered.payments, leases, "USD"),
+    },
+    // Overdue debt is a current balance, so it ignores the period filter.
+    overdue: {
+      PEN: calculateOverdue(payments, leases, properties, activeTab, "PEN"),
+      USD: calculateOverdue(payments, leases, properties, activeTab, "USD"),
+    },
+    projection: {
+      PEN: calculateProjection(filtered.payments, leases, "PEN"),
+      USD: calculateProjection(filtered.payments, leases, "USD"),
+    },
+    recentPayments: getRecentActivity(filtered.payments),
   }
 }
