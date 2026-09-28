@@ -1,141 +1,82 @@
 'use client';
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { createLease } from "@/lib/actions";
-import { Property, Tenant } from "@/lib/db";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LeaseTermsFields } from '@/components/LeaseTermsFields';
+import { createLease } from '@/lib/actions';
+import { notify } from '@/lib/action-toast';
+import { formatMoney } from '@/lib/format';
+import { useI18n } from '@/lib/i18n/client';
+import type { Property, Tenant } from '@/lib/types';
 
-export default function NewLeasePage({ properties, tenants }: { properties: Property[], tenants: Tenant[] }) {
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
+export function NewLeaseForm({ properties, tenants }: { properties: Property[]; tenants: Tenant[] }) {
+  const { locale, t } = useI18n();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [propertyId, setPropertyId] = useState('');
 
-  const availableProperties = properties.filter(p => p.status === 'AVAILABLE');
-  const selectedProperty = properties.find(p => p.id === selectedPropertyId);
-  const isCommercial = selectedProperty?.type === 'COMMERCIAL';
+  const available = properties.filter((property) => property.status === 'AVAILABLE');
+  const selected = properties.find((property) => property.id === propertyId);
+  const canSubmit = available.length > 0 && tenants.length > 0;
+
+  const submit = (formData: FormData) =>
+    startTransition(async () => {
+      const result = await createLease(formData);
+      if (notify(result, t, t.leases.created)) router.push(`/leases/${result.data.id}`);
+    });
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
-      <div className="flex items-center gap-4">
-        <Link href="/leases">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <h2 className="text-3xl font-bold tracking-tight">Nuevo Contrato de Alquiler</h2>
+    <form action={submit} className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="propertyId">{t.leases.property}</Label>
+        <Select name="propertyId" required onValueChange={setPropertyId} disabled={available.length === 0}>
+          <SelectTrigger id="propertyId">
+            <SelectValue placeholder={available.length ? t.leases.selectProperty : t.leases.noAvailable} />
+          </SelectTrigger>
+          <SelectContent>
+            {available.map((property) => (
+              <SelectItem key={property.id} value={property.id}>
+                {property.name} · {t.propertyType[property.type]} · {formatMoney(property.price, property.currency, locale)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <form action={createLease} className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="propertyId">Propiedad</Label>
-          <Select name="propertyId" required onValueChange={setSelectedPropertyId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar propiedad" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableProperties.map(p => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name} ({p.currency === 'USD' ? '$' : 'S/.'}{p.price}) - {p.type === 'ROOM' ? 'Cuarto' : 'Local'}
-                </SelectItem>
-              ))}
-              {availableProperties.length === 0 && (
-                <SelectItem value="" disabled>No hay propiedades disponibles</SelectItem>
-              )}
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="tenantId">{t.leases.tenant}</Label>
+        <Select name="tenantId" required disabled={tenants.length === 0}>
+          <SelectTrigger id="tenantId">
+            <SelectValue placeholder={tenants.length ? t.leases.selectTenant : t.leases.noTenants} />
+          </SelectTrigger>
+          <SelectContent>
+            {tenants.map((tenant) => (
+              <SelectItem key={tenant.id} value={tenant.id}>
+                {tenant.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="tenantId">Inquilino</Label>
-          <Select name="tenantId" required>
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar inquilino" />
-            </SelectTrigger>
-            <SelectContent>
-              {tenants.map(t => (
-                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      <LeaseTermsFields
+        isCommercial={selected?.type === 'COMMERCIAL'}
+        defaultRent={selected?.price}
+        defaultCurrency={selected?.currency}
+      />
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="startDate">Fecha de Inicio</Label>
-            <Input id="startDate" name="startDate" type="date" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="endDate">Fecha de Fin</Label>
-            <Input id="endDate" name="endDate" type="date" required />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="monthlyRent">Renta Mensual</Label>
-            <Input id="monthlyRent" name="monthlyRent" type="number" min="0" defaultValue={selectedProperty?.price} required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="currency">Moneda</Label>
-            <Select name="currency" required defaultValue={selectedProperty?.currency || 'PEN'}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar moneda" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="PEN">Soles (S/.)</SelectItem>
-                <SelectItem value="USD">Dólares ($)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="advanceMonths">Meses de Adelanto</Label>
-            <Input id="advanceMonths" name="advanceMonths" type="number" min="0" defaultValue="1" required />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="warrantyMonths">Meses de Garantía</Label>
-            <Input id="warrantyMonths" name="warrantyMonths" type="number" min="0" defaultValue="1" required />
-          </div>
-        </div>
-
-        {isCommercial && (
-          <div className="border p-4 rounded-md space-y-4 bg-slate-50">
-            <h3 className="font-semibold">Costos de Servicios (Local Comercial)</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="waterCost">Pago Agua</Label>
-                <Input id="waterCost" name="waterCost" type="number" min="0" placeholder="0" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="electricityCost">Pago Luz</Label>
-                <Input id="electricityCost" name="electricityCost" type="number" min="0" placeholder="0" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="gasCost">Pago Gas</Label>
-                <Input id="gasCost" name="gasCost" type="number" min="0" placeholder="0" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-4">
-          <Link href="/leases">
-            <Button variant="outline" type="button">Cancelar</Button>
-          </Link>
-          <Button type="submit" disabled={availableProperties.length === 0}>Crear Contrato</Button>
-        </div>
-      </form>
-    </div>
+      <div className="flex justify-end gap-4">
+        <Button variant="outline" type="button" asChild>
+          <Link href="/leases">{t.common.cancel}</Link>
+        </Button>
+        <Button type="submit" disabled={pending || !canSubmit}>
+          {pending ? t.common.saving : t.leases.create}
+        </Button>
+      </div>
+    </form>
   );
 }

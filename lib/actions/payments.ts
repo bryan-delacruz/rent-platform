@@ -1,169 +1,119 @@
 'use server';
 
 import { prisma } from '@/lib/prisma';
-import { calculatePaymentStatus } from '@/lib/utils';
+import { requireOwner } from '@/lib/auth';
+import { generateMonthlyCharges } from '@/lib/charges';
+import {
+  centsToDecimalString,
+  isoToDate,
+  summarizeTransactions,
+  toCents,
+  todayISO,
+  dateToISO,
+} from '@/lib/billing';
+import { parse, registerPaymentSchema, updatePaymentSchema } from '@/lib/validation';
 import { revalidatePayments } from '@/lib/revalidation';
-import { generateId, generateUniqueId, TRANSACTION_PREFIX, PAYMENT_PREFIX } from '@/lib/id-generator';
+import type { Prisma } from '@prisma/client';
+import type { ActionResult } from '@/lib/types';
+import { ActionError, fail, ok, run } from './result';
 
-export async function registerPayment(paymentId: string, amount: number) {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-  });
-
-  if (!payment) return;
-
-  // Get current transactions
-  const currentTransactions = (payment.transactions as any[]) || [];
-
-  // Add new transaction
-  const newTransactions = [
-    ...currentTransactions,
-    {
-      id: generateId(TRANSACTION_PREFIX),
-      date: new Date().toISOString().split('T')[0],
-      amount: amount,
-    },
-  ];
-
-  // Recalculate total paid from transactions
-  const totalPaid = newTransactions.reduce((sum: number, tx: any) => sum + tx.amount, 0);
-
-  const today = new Date().toISOString().split('T')[0];
-
-  await prisma.payment.update({
+/** Recomputes amountPaid and paidDate from the payment's transactions. */
+async function syncTotals(tx: Prisma.TransactionClient, paymentId: string) {
+  const transactions = await tx.paymentTransaction.findMany({ where: { paymentId } });
+  const { paidCents, lastPaidAt } = summarizeTransactions(
+    transactions.map((t) => ({ amountCents: toCents(t.amount), paidAt: dateToISO(t.paidAt) })),
+  );
+  await tx.payment.update({
     where: { id: paymentId },
     data: {
-      transactions: newTransactions,
-      amountPaid: totalPaid,
-      paidDate: today,
-      status: totalPaid >= payment.amount
-        ? 'PAID'
-        : calculatePaymentStatus(payment.amount, totalPaid, payment.dueDate),
+      amountPaid: centsToDecimalString(paidCents),
+      paidDate: lastPaidAt ? isoToDate(lastPaidAt) : null,
     },
   });
-
-  revalidatePayments(payment.leaseId);
 }
 
-export async function generateMonthlyPayments(revalidate = true) {
-  const today = new Date();
-  const currentMonth = today.getMonth(); // 0-11
-  const currentYear = today.getFullYear();
+export async function registerPayment(paymentId: string, amount: string): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  const input = parse(registerPaymentSchema, { paymentId, amount });
+  if (!input.ok) return fail('validation', input.fields);
 
-  // Format: YYYY-MM-01
-  const dueDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+  return run(async () => {
+    const leaseId = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findFirst({ where: { id: paymentId, ownerId } });
+      if (!payment) throw new ActionError('notFound');
+      const pendingCents = toCents(payment.amount) - toCents(payment.amountPaid);
+      if (toCents(input.data.amount) > pendingCents) throw new ActionError('overpayment');
 
-  // Get all active leases
-  const activeLeases = await prisma.lease.findMany({
-    where: {
-      status: 'ACTIVE',
-      endDate: {
-        gte: dueDate, // Lease must not be physically expired
-      },
-    },
-  });
-
-  let createdCount = 0;
-
-  for (const lease of activeLeases) {
-    // Check if payment already exists for this month/year for this lease
-    const existingPayment = await prisma.payment.findFirst({
-      where: {
-        leaseId: lease.id,
-        dueDate: dueDate,
-      },
-    });
-
-    if (!existingPayment) {
-      await prisma.payment.create({
+      await tx.paymentTransaction.create({
         data: {
-          id: generateUniqueId(PAYMENT_PREFIX),
-          leaseId: lease.id,
-          dueDate: dueDate,
-          amount: lease.monthlyRent,
-          amountPaid: 0,
-          status: 'PENDING',
-          paidDate: null,
+          paymentId,
+          amount: input.data.amount,
+          paidAt: isoToDate(input.data.paidAt ?? todayISO()),
         },
       });
-      createdCount++;
-    }
-  }
+      await syncTotals(tx, paymentId);
+      return payment.leaseId;
+    });
+    revalidatePayments(leaseId);
+    return ok();
+  });
+}
 
-  if (revalidate) {
+export async function deleteTransaction(paymentId: string, transactionId: string): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  return run(async () => {
+    const leaseId = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findFirst({ where: { id: paymentId, ownerId } });
+      if (!payment) throw new ActionError('notFound');
+      const { count } = await tx.paymentTransaction.deleteMany({
+        where: { id: transactionId, paymentId },
+      });
+      if (count === 0) throw new ActionError('notFound');
+      await syncTotals(tx, paymentId);
+      return payment.leaseId;
+    });
+    revalidatePayments(leaseId);
+    return ok();
+  });
+}
+
+export async function updatePayment(
+  paymentId: string,
+  values: { amount: string; dueDate: string },
+): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  const input = parse(updatePaymentSchema, { paymentId, ...values });
+  if (!input.ok) return fail('validation', input.fields);
+
+  return run(async () => {
+    const payment = await prisma.payment.findFirst({ where: { id: paymentId, ownerId } });
+    if (!payment) throw new ActionError('notFound');
+    await prisma.payment.update({
+      where: { id: paymentId },
+      data: { amount: input.data.amount, dueDate: isoToDate(input.data.dueDate) },
+    });
+    revalidatePayments(payment.leaseId);
+    return ok();
+  });
+}
+
+export async function deletePayment(paymentId: string): Promise<ActionResult> {
+  const ownerId = await requireOwner();
+  return run(async () => {
+    const payment = await prisma.payment.findFirst({ where: { id: paymentId, ownerId } });
+    if (!payment) throw new ActionError('notFound');
+    // Transactions are removed by the ON DELETE CASCADE relation.
+    await prisma.payment.delete({ where: { id: paymentId } });
+    revalidatePayments(payment.leaseId);
+    return ok();
+  });
+}
+
+export async function generateMonthlyPayments(): Promise<ActionResult<{ created: number }>> {
+  const ownerId = await requireOwner();
+  return run(async () => {
+    const result = await generateMonthlyCharges({ ownerId });
     revalidatePayments();
-  }
-
-  return {
-    created: createdCount,
-    message: createdCount > 0
-      ? `Successfully generated ${createdCount} new payments for this month.`
-      : `No new payments generated. All active leases already have payments for this month.`,
-  };
-}
-
-export async function updatePayment(paymentId: string, data: { amount: number; dueDate: string }) {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
+    return ok(result);
   });
-
-  if (!payment) return;
-
-  const totalPaid = payment.amountPaid || 0;
-
-  await prisma.payment.update({
-    where: { id: paymentId },
-    data: {
-      amount: data.amount,
-      dueDate: data.dueDate,
-      status: calculatePaymentStatus(data.amount, totalPaid, data.dueDate),
-    },
-  });
-
-  revalidatePayments(payment.leaseId);
-}
-
-export async function deletePayment(paymentId: string) {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-  });
-
-  if (!payment) return;
-
-  await prisma.payment.delete({
-    where: { id: paymentId },
-  });
-
-  revalidatePayments(payment.leaseId);
-}
-
-export async function deleteTransaction(paymentId: string, transactionId: string) {
-  const payment = await prisma.payment.findUnique({
-    where: { id: paymentId },
-  });
-
-  if (!payment) return;
-
-  const currentTransactions = (payment.transactions as any[]) || [];
-  const updatedTransactions = currentTransactions.filter((tx: any) => tx.id !== transactionId);
-
-  // Recalculate total paid
-  const totalPaid = updatedTransactions.reduce((sum: number, tx: any) => sum + tx.amount, 0);
-
-  // Determine paidDate
-  const paidDate = totalPaid === 0
-    ? null
-    : (updatedTransactions[updatedTransactions.length - 1]?.date || null);
-
-  await prisma.payment.update({
-    where: { id: paymentId },
-    data: {
-      transactions: updatedTransactions,
-      amountPaid: totalPaid,
-      status: calculatePaymentStatus(payment.amount, totalPaid, payment.dueDate),
-      paidDate,
-    },
-  });
-
-  revalidatePayments(payment.leaseId);
 }

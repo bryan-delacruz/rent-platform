@@ -1,6 +1,6 @@
-import type { Meta, StoryObj } from "@storybook/react"
+import type { Meta, StoryObj } from "@storybook/nextjs-vite"
 import { Button } from "./button"
-import { action } from "@storybook/addon-actions"
+import { fn } from "storybook/test"
 
 const meta: Meta<typeof Button> = {
   title: "UI/Button",
@@ -24,7 +24,7 @@ const meta: Meta<typeof Button> = {
     },
   },
   args: {
-    onClick: action("onClick"),
+    onClick: fn(),
   },
 }
 

@@ -1,34 +1,33 @@
 'use client';
 
-import { Button } from "@/components/ui/button";
-import { generateMonthlyPayments } from "@/lib/actions";
-import { RefreshCw } from "lucide-react";
-import { toast } from "sonner";
-import { useState } from "react";
+import { useTransition } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { generateMonthlyPayments } from '@/lib/actions';
+import { notify } from '@/lib/action-toast';
+import { interpolate } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n/client';
 
 export function GeneratePaymentsButton() {
-  const [loading, setLoading] = useState(false);
+  const { t } = useI18n();
+  const [pending, startTransition] = useTransition();
 
-  const handleGenerate = async () => {
-    setLoading(true);
-    try {
-      const result = await generateMonthlyPayments(true);
-      if (result.created > 0) {
-        toast.success(`Se generaron ${result.created} nuevos pagos exitosamente.`);
+  const generate = () =>
+    startTransition(async () => {
+      const result = await generateMonthlyPayments();
+      if (!notify(result, t)) return;
+      if (result.data.created > 0) {
+        toast.success(interpolate(t.payments.generated, { count: result.data.created }));
       } else {
-        toast.info("No se generaron nuevos pagos. Todos los contratos activos ya tienen pagos para este mes.");
+        toast.info(t.payments.noneGenerated);
       }
-    } catch (error) {
-      toast.error("Error al generar pagos");
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
 
   return (
-    <Button onClick={handleGenerate} disabled={loading}>
-      <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-      {loading ? 'Generando...' : 'Generar Pagos del Mes'}
+    <Button onClick={generate} disabled={pending}>
+      <RefreshCw className={`mr-2 h-4 w-4 ${pending ? 'animate-spin' : ''}`} aria-hidden />
+      {pending ? t.payments.generating : t.payments.generate}
     </Button>
   );
 }

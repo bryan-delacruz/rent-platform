@@ -1,66 +1,44 @@
-import { formatMoney } from "@/lib/utils";
+import { formatDate, formatMoney } from '@/lib/format';
+import { getDictionary, interpolate, type Locale } from '@/lib/i18n';
+import type { Currency, Payment } from '@/lib/types';
 
-export interface WhatsAppPaymentData {
-  amount: number;
-  amountPaid: number;
-  dueDate: string;
-  status: string;
+/** Builds a wa.me link, assuming Peru (+51) when the number has no country code. */
+export function whatsAppUrl(phone: string, message: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const withCode = digits.startsWith('51') && digits.length > 9 ? digits : `51${digits}`;
+  return `https://wa.me/${withCode}?text=${encodeURIComponent(message)}`;
 }
 
-export interface WhatsAppTenantData {
-  name: string;
-  phone: string;
-}
-
-export interface WhatsAppPropertyData {
-  name: string;
-}
-
-export interface WhatsAppLeaseData {
-  currency: 'USD' | 'PEN';
-}
-
-export function generateWhatsAppUrl(phone: string, message: string): string {
-  // Ensure phone number has country code if missing (assuming PE +51 for now based on context)
-  const cleanPhone = phone.replace(/\D/g, '');
-  const phoneWithCode = cleanPhone.startsWith('51') ? cleanPhone : `51${cleanPhone}`;
-
-  return `https://wa.me/${phoneWithCode}?text=${encodeURIComponent(message)}`;
-}
-
-export function generatePaymentMessage(
-  type: 'CONFIRMATION' | 'REMINDER' | 'RECEIPT',
-  payment: WhatsAppPaymentData,
-  lease: WhatsAppLeaseData,
-  tenant: WhatsAppTenantData,
-  property: WhatsAppPropertyData,
-  overdueDays: number = 0
+export function paymentMessage(
+  locale: Locale,
+  payment: Pick<Payment, 'amount' | 'amountPaid' | 'dueDate' | 'status' | 'overdueDays'>,
+  currency: Currency,
+  tenantName: string,
+  propertyName: string,
 ): string {
-  const remaining = payment.amount - (payment.amountPaid || 0);
+  const t = getDictionary(locale).whatsapp;
+  const money = (value: number) => formatMoney(value, currency, locale);
 
-  if (type === 'CONFIRMATION') {
-    return `Hola ${tenant.name}, le confirmamos que hemos recibido el pago por ${formatMoney(payment.amountPaid, lease.currency)} correspondiente al alquiler de ${property.name}. ¡Gracias!`;
+  if (payment.status === 'PAID') {
+    return interpolate(t.confirmation, {
+      tenant: tenantName,
+      amount: money(payment.amountPaid),
+      property: propertyName,
+    });
   }
 
-  if (type === 'REMINDER') {
-    let message = `Hola ${tenant.name}, le recordamos que tiene un pago pendiente del alquiler de ${property.name}. `;
-    message += `Vence: ${payment.dueDate}. `;
-
-    if (overdueDays > 0) {
-      message += `Tiene ${overdueDays} días de retraso. `;
-    }
-
-    if (payment.amountPaid > 0) {
-      message += `Saldo pendiente: ${formatMoney(remaining, lease.currency)}.`;
-    } else {
-      message += `Monto pendiente: ${formatMoney(payment.amount, lease.currency)}.`;
-    }
-    return message;
-  }
-
-  if (type === 'RECEIPT') {
-    return `Hola ${tenant.name}, adjunto el recibo de pago del alquiler de ${property.name} correspondiente a la fecha ${payment.dueDate}. Monto pagado: ${formatMoney(payment.amountPaid, lease.currency)}.`;
-  }
-
-  return "";
+  const parts = [
+    interpolate(t.reminder, {
+      tenant: tenantName,
+      property: propertyName,
+      date: formatDate(payment.dueDate, locale),
+    }),
+  ];
+  if (payment.overdueDays > 0) parts.push(interpolate(t.overdue, { count: payment.overdueDays }));
+  parts.push(
+    payment.amountPaid > 0
+      ? interpolate(t.balance, { amount: money(payment.amount - payment.amountPaid) })
+      : interpolate(t.amountDue, { amount: money(payment.amount) }),
+  );
+  return parts.join(' ');
 }
