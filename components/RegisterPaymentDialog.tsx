@@ -29,13 +29,19 @@ export function RegisterPaymentDialog({ payment, currency }: { payment: Payment;
   const [saving, startTransition] = useTransition();
   const money = (value: number) => formatMoney(value, currency, locale);
 
+  // Suggest the current pending balance every time the dialog opens.
+  const onOpenChange = (next: boolean) => {
+    if (next) setAmount(centsToDecimalString(pending));
+    setOpen(next);
+  };
+
   const confirm = () =>
     startTransition(async () => {
       if (notify(await registerPayment(payment.id, amount), t, t.payments.registered)) setOpen(false);
     });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button size="icon" variant="ghost" aria-label={t.payments.register} title={t.payments.register}>
           <DollarSign className="h-4 w-4" />
